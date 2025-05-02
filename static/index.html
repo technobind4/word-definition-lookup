@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Definition Lookup</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .definition-card {
+            transition: all 0.3s ease;
+        }
+        .definition-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .loading {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-3xl mx-auto">
+            <h1 class="text-4xl font-bold text-center mb-8 text-gray-800">Word Definition Lookup</h1>
+            
+            <!-- Search Form -->
+            <form id="definitionForm" class="mb-8">
+                <div class="flex gap-2">
+                    <input type="text" id="word" name="word" required
+                        class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Enter a word...">
+                    <button type="submit"
+                        class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Look Up
+                    </button>
+                </div>
+            </form>
+
+            <!-- Definition Result -->
+            <div id="result" class="mb-8 hidden">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h2 class="text-xl font-semibold mb-2" id="resultWord"></h2>
+                    <p id="resultDefinition" class="text-gray-700"></p>
+                </div>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loading" class="hidden">
+                <div class="bg-white rounded-lg shadow-md p-6 loading">
+                    <div class="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full"></div>
+                </div>
+            </div>
+
+            <!-- Recent Definitions -->
+            <div class="mt-12">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Recent Lookups</h2>
+                <div id="recentDefinitions" class="space-y-4">
+                    <!-- Recent definitions will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const definitionForm = document.getElementById('definitionForm');
+        const resultDiv = document.getElementById('result');
+        const loadingDiv = document.getElementById('loading');
+        const resultWord = document.getElementById('resultWord');
+        const resultDefinition = document.getElementById('resultDefinition');
+        const recentDefinitionsDiv = document.getElementById('recentDefinitions');
+
+        // Load recent definitions on page load
+        loadRecentDefinitions();
+
+        definitionForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const word = document.getElementById('word').value.trim();
+            
+            if (!word) return;
+
+            showLoading();
+            
+            try {
+                const formData = new FormData();
+                formData.append('word', word);
+                
+                const response = await fetch('/get_definition', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch definition');
+                }
+
+                const data = await response.json();
+                
+                showResult(word, data.definition);
+                await loadRecentDefinitions(); // Refresh recent definitions
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                hideLoading();
+            }
+        });
+
+        async function loadRecentDefinitions() {
+            try {
+                const response = await fetch('/recent_definitions');
+                if (!response.ok) throw new Error('Failed to fetch recent definitions');
+                
+                const data = await response.json();
+                displayRecentDefinitions(data.definitions);
+            } catch (error) {
+                console.error('Error loading recent definitions:', error);
+            }
+        }
+
+        function displayRecentDefinitions(definitions) {
+            recentDefinitionsDiv.innerHTML = definitions.map(def => `
+                <div class="definition-card bg-white rounded-lg shadow-sm p-4 relative">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">${def.word}</h3>
+                    <p class="text-gray-600">${def.definition}</p>
+                    <button onclick="deleteDefinition('${def.word}')" 
+                        class="absolute top-4 right-4 text-gray-400 hover:text-red-500 focus:outline-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div class="text-xs text-gray-400 mt-2">
+                        ${new Date(def.created_at).toLocaleString()}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function deleteDefinition(word) {
+            if (!confirm(`Are you sure you want to delete the definition for "${word}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/definition/${encodeURIComponent(word)}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Failed to delete definition');
+
+                await loadRecentDefinitions(); // Refresh the list
+            } catch (error) {
+                console.error('Error deleting definition:', error);
+                alert('Failed to delete definition. Please try again.');
+            }
+        }
+
+        function showLoading() {
+            loadingDiv.classList.remove('hidden');
+            resultDiv.classList.add('hidden');
+        }
+
+        function hideLoading() {
+            loadingDiv.classList.add('hidden');
+        }
+
+        function showResult(word, definition) {
+            resultWord.textContent = word;
+            resultDefinition.textContent = definition;
+            resultDiv.classList.remove('hidden');
+        }
+
+        function showError(message) {
+            resultWord.textContent = 'Error';
+            resultDefinition.textContent = message;
+            resultDiv.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html> 
